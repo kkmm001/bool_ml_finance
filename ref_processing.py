@@ -5,12 +5,15 @@ Created on Sun May  1 11:31:21 2022
 @author: cui
 """
 
-import os
+import os, re
 import numpy as np
 import pandas as pd
 
 import csv
 import datetime
+import yfinance as yf
+from progressbar import progressbar
+import pickle
 
 
 import requests
@@ -18,7 +21,7 @@ from json import loads
 
 key = 'N7ITOCFKA6AHTH9I' 
 
-def read_daily_price(symbol = 'IBM', function = 'TIME_SERIES_WEEKLY_ADJUSTED', key = 'N7ITOCFKA6AHTH9I'):
+def read_daily_price(symbol = 'IBM', function = 'TIME_SERIES_DAILY', key = 'N7ITOCFKA6AHTH9I'):
     # function: 
         
         # TIME_SERIES_DAILY
@@ -32,6 +35,10 @@ def read_daily_price(symbol = 'IBM', function = 'TIME_SERIES_WEEKLY_ADJUSTED', k
     data_raw    = requests.get(url).json()
     data_clean  = data_raw[list(data_raw.keys())[1]]
     data        = pd.DataFrame(data_clean).T
+    
+    # Keep only letters
+    data.columns = [re.sub("[^a-zA-Z]+", "", xxx) for xxx in data.columns]
+    
     return data
 
 
@@ -48,6 +55,9 @@ def read_price_intraday(symbol = 'IBM', interval = '5min', key = 'N7ITOCFKA6AHTH
     data_clean  = data_raw[list(data_raw.keys())[1]]
     data        = pd.DataFrame(data_clean).T
     
+    # Keep only letters
+    data.columns = [re.sub("[^a-zA-Z]+", "", xxx) for xxx in data.columns]
+
     return data
 
 
@@ -69,6 +79,9 @@ def read_price_intraday_extend(symbol = 'IBM', interval = '5min', timeslice = 'y
     data_raw    = requests.get(url).json()
     data_clean  = data_raw[list(data_raw.keys())[1]]
     data        = pd.DataFrame(data_clean).T
+    
+    data.columns = [re.sub("[^a-zA-Z]+", "", xxx) for xxx in data.columns]
+
     return data
 
 
@@ -95,8 +108,8 @@ def Listing_status():
 
 # %% Function validation
 
-df_test_intraday = read_price_intraday(key='demo')
-df_test_daily = read_daily_price(key='demo')
+df_test_intraday    = read_price_intraday(key='demo')
+df_test_daily       = read_daily_price(key='demo')
 
 
 # %%
@@ -109,29 +122,52 @@ df_test_daily = read_daily_price(key='demo')
 cwd = r"C:\st_sim\Alpha_avantage\blackrock_csv_msci_USA"
 os.chdir(cwd)    
 
-list_holding = pd.read_pickle('raw_holding_msci_usa.pkl')
+list_holding    = pd.read_pickle('raw_holding_msci_usa.pkl')
+df_ref          = list_holding['20220428']
 
-df_ref = list_holding['20220428']
-
-df_all_stocks = Listing_status()
+df_all_stocks   = Listing_status()
 
 
 # %% 
 
 flag_valid = np.in1d(df_ref['Issuer Ticker'], df_all_stocks['symbol']) 
-
 df_ref.loc[~flag_valid, :]
 
 
+# %% Yahoo
+
+ISIN_list   = df_ref['ISIN'].to_list()
+Ticker_list = df_ref['Issuer Ticker'].to_list()
 
 
+df_close  = {};
+df_volume = {};
+
+# for ISIN_i in ISIN_list:
+for i in progressbar(range(len(ISIN_list))):
+    
+    ISIN_i  = ISIN_list[i];
+    Ticker_i  = Ticker_list[i];
+
+    symbol_use = Ticker_i
+    # symbol_use = 'HEIA'   # Example to Test for 
+    
+    ticker  = yf.Ticker(symbol_use)
+    df_i    = ticker.history(period="max")
+
+    if len(df_i) == 0:
+        ticker  = yf.Ticker(symbol_use[:-1]+"-"+symbol_use[-1])
+        df_i    = ticker.history(period="max")
 
 
+    df_close[symbol_use]  = df_i['Close']
+    df_volume[symbol_use] = df_i['Volume']
 
 
-
-
-
+with open('mkt_data_msci_usa.pkl', 'wb') as f:
+    pickle.dump(df_close, f)
+    pickle.dump(df_volume, f)
+    pickle.dump(df_ref, f)
 
 
 
